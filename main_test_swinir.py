@@ -73,10 +73,22 @@ def main():
     #parsing data
     files = os.listdir(video_path)
     pairs = []
+    has_480 = False
     for f in files:
-        if f.endswith('_144.mp4'):
+        if f.endswith('_480.mp4'):
+            has_480 = True
+    for f in files:
+        if f.endswith('_144.mp4') and has_480:
             hr_name = f.split('_')[0] + '_480.mp4'
             pairs += [(f, hr_name)]
+        elif f.endswith('_144.mp4'):
+            new_name = f.replace('_144.mp4', '_480.mp4')
+            new_file_path = os.path.join(video_path, new_name)
+
+            if not os.path.exists(new_file_path):
+                with open(os.path.join(video_path, f), 'rb') as infile, open(os.path.join(video_path, new_name), 'wb') as outfile:
+                    outfile.write(infile.read())
+                os.rename(os.path.join(video_path, new_name), os.path.join(video_path, f))
 
     n_frames = 125
     size = int(n_frames // len(pairs))
