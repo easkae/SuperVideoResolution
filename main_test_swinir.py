@@ -78,7 +78,7 @@ def main():
             hr_name = f.split('_')[0] + '_480.mp4'
             pairs += [(f, hr_name)]
 
-    n_frames = 120
+    n_frames = 125
     size = int(n_frames // len(pairs))
 
     save_idx = 0
@@ -162,7 +162,7 @@ def main():
         if output.ndim == 3:
             output = np.transpose(output[[2, 1, 0], :, :], (1, 2, 0))  # CHW-RGB to HCW-BGR
         output = (output * 255.0).round().astype(np.uint8)  # float32 to uint8
-        cv2.imwrite(f'{save_dir}/{imgname}_SwinIR.png', output)
+        cv2.imwrite(f'{save_dir}/{imgname}.png', output)
 
         # evaluate psnr/ssim/psnr_b
         if img_gt is not None:
@@ -390,29 +390,25 @@ def test(img_lq, model, args, window_size):
 
 #frames to video
 def frames_to_videos():
-    input_folder = './results/swinir_classical_sr_x2'
-    output_video_path = './results/swinir_classical_sr_x2_vid/SwinIR.mp4'
-
-    # Generate a list of input file paths with their names
-    input_files = [f"{input_folder}/{i}_SwinIR.png" for i in range(len(os.listdir(input_folder)))]
-
-    # Use the input_files list to specify the input files explicitly
-    ffmpeg_command = f'ffmpeg -framerate 12 -i {" -i ".join(input_files)} -c:v libx264 -pix_fmt yuv420p {output_video_path}'
-    subprocess.call(ffmpeg_command, shell=True)
-    # frames = [f for f in os.listdir(input_folder) if f.endswith('.png')]
-    # frames.sort()
-    # frame = cv2.imread(os.path.join(input_folder, frames[0]))
-    # height, width, layers = frame.shape
-    # fps = 30  
-
-    # fourcc = cv2.VideoWriter_fourcc(*'XVID')  # Формат видео, в данном случае - XVID
-    # output_video = cv2.VideoWriter('output_video.avi', fourcc, fps, (width, height))
-
-    # for frame_filename in frames:
-    #     frame = cv2.imread(os.path.join(input_folder, frame_filename))
-    #     output_video.write(frame)
-    
-    #     output_video.release()
+    output_video_name = 'output_video.mp4'
+    frame_rate = 25
+    frame_width = None
+    frame_height = None
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = None
+    frame_dir = './results/swinir_classical_sr_x2'
+    frame_files = sorted(os.listdir(frame_dir), key=lambda x: int(x.split('.')[0]))
+    for frame_file in frame_files:
+        if frame_file.endswith('.png'):
+            frame_path = os.path.join(frame_dir, frame_file)
+            frame = cv2.imread(frame_path)
+            if frame_width is None or frame_height is None:
+                frame_height, frame_width, _ = frame.shape
+                out = cv2.VideoWriter(output_video_name, fourcc, frame_rate, (frame_width, frame_height))
+            frame = cv2.resize(frame, (frame_width, frame_height))
+            out.write(frame)
+    if out is not None:
+        out.release()
 
 if __name__ == '__main__':
     main()
