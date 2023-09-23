@@ -1,11 +1,21 @@
+import os
+import random
+import numpy as np
+import torch
 import argparse
 import cv2
 import glob
-import numpy as np
+from torch import nn
+from torch.utils.data import Dataset
+from torchvision import transforms
+import torchvision.transforms.functional as TF
+from torch.optim import Adam
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 from collections import OrderedDict
-import os
-import torch
 import requests
+import subprocess
+import ffmpeg
 
 from models.network_swinir import SwinIR as net
 from utils import util_calculate_psnr_ssim as util
@@ -31,6 +41,79 @@ def main():
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    #fix seed
+    def seed_everything(seed):
+        random.seed(seed)
+        os.environ['PYTHONHASHSEED'] = str(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = True
+        seed = 42
+        seed_everything(seed)
+
+    #preparing data
+    video_path = './testsets/myvid'
+    train_path = './testsets/myset'
+
+    lr_path = os.path.join(train_path, 'lr')
+    hr_path = os.path.join(train_path, 'hr')
+
+    if not os.path.exists(train_path):
+        os.system(f'mkdir -p {train_path}')
+
+    if not os.path.exists(lr_path):
+        os.system(f'mkdir -p {lr_path}')
+
+    if not os.path.exists(hr_path):
+        os.system(f'mkdir -p {hr_path}')
+
+    #parsing data
+    files = os.listdir(video_path)
+    pairs = []
+    for f in files:
+        if f.endswith('_144.mp4'):
+            hr_name = f.split('_')[0] + '_480.mp4'
+            pairs += [(f, hr_name)]
+
+    n_frames = 120
+    size = int(n_frames // len(pairs))
+
+    save_idx = 0
+    for idx in tqdm(range(len(pairs))):
+        pair = pairs[idx]
+
+        lr = os.path.join(video_path, pair[0])
+        hr = os.path.join(video_path, pair[1])
+
+        lr_cap = cv2.VideoCapture(lr)
+        hr_cap = cv2.VideoCapture(hr)
+
+        lr_len = int(lr_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        hr_len = int(hr_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        assert lr_len == hr_len
+
+        frames_idx = [i for i in range(lr_len)]
+        if size:
+            frames_idx = np.random.choice(frames_idx, size=size, replace=False)
+
+        tmp_idx = 0
+        while True:
+            success_lr, frame_lr = lr_cap.read()
+            success_hr, frame_hr = hr_cap.read()
+            if not success_lr or not success_hr:
+                break
+            if tmp_idx in frames_idx:
+                lr_save_path = os.path.join(lr_path, f'{save_idx}x2.png')
+                hr_save_path = os.path.join(hr_path, f'{save_idx}.png')
+                cv2.imwrite(lr_save_path, frame_lr)
+                cv2.imwrite(hr_save_path, frame_hr)
+                save_idx += 1
+            tmp_idx += 1
+
     # set up model
     if os.path.exists(args.model_path):
         print(f'loading model from {args.model_path}')
@@ -302,8 +385,35 @@ def test(img_lq, model, args, window_size):
                 E[..., h_idx*sf:(h_idx+tile)*sf, w_idx*sf:(w_idx+tile)*sf].add_(out_patch)
                 W[..., h_idx*sf:(h_idx+tile)*sf, w_idx*sf:(w_idx+tile)*sf].add_(out_patch_mask)
         output = E.div_(W)
-
+    
     return output
+
+#frames to video
+def frames_to_videos():
+    input_folder = './results/swinir_classical_sr_x2'
+    output_video_path = './results/swinir_classical_sr_x2_vid/SwinIR.mp4'
+
+    # Generate a list of input file paths with their names
+    input_files = [f"{input_folder}/{i}_SwinIR.png" for i in range(len(os.listdir(input_folder)))]
+
+    # Use the input_files list to specify the input files explicitly
+    ffmpeg_command = f'ffmpeg -framerate 12 -i {" -i ".join(input_files)} -c:v libx264 -pix_fmt yuv420p {output_video_path}'
+    subprocess.call(ffmpeg_command, shell=True)
+    # frames = [f for f in os.listdir(input_folder) if f.endswith('.png')]
+    # frames.sort()
+    # frame = cv2.imread(os.path.join(input_folder, frames[0]))
+    # height, width, layers = frame.shape
+    # fps = 30  
+
+    # fourcc = cv2.VideoWriter_fourcc(*'XVID')  # Формат видео, в данном случае - XVID
+    # output_video = cv2.VideoWriter('output_video.avi', fourcc, fps, (width, height))
+
+    # for frame_filename in frames:
+    #     frame = cv2.imread(os.path.join(input_folder, frame_filename))
+    #     output_video.write(frame)
+    
+    #     output_video.release()
 
 if __name__ == '__main__':
     main()
+    frames_to_videos()
